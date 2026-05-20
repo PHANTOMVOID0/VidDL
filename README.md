@@ -1,75 +1,33 @@
-# VidDL — Free Video Downloader
+# VidDL 🎬
 
-Download videos from YouTube, TikTok, Instagram, Twitter/X, Facebook, Reddit, Vimeo and 1000+ sites. No watermark, no limits, no API key needed.
+> Download videos from YouTube, TikTok, Instagram, Twitter/X, Facebook, Reddit, Vimeo and 1000+ sites — no watermark, no API key, completely free.
 
-**Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp)**
+![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat&logo=node.js&logoColor=white)
+![Vercel](https://img.shields.io/badge/Deployed_on-Vercel-000000?style=flat&logo=vercel&logoColor=white)
+![yt-dlp](https://img.shields.io/badge/Powered_by-yt--dlp-FF0000?style=flat)
+![License](https://img.shields.io/badge/License-MIT-blue?style=flat)
+
+---
+
+## Preview
+
+```
+Paste any video URL → Pick quality → Download
+```
+
+Clean dark UI · Multiple formats · Up to 4K · Audio-only option · No watermark
 
 ---
 
 ## Features
 
-- High quality downloads (up to 4K where available)
-- No watermark
-- Video + Audio-only formats
-- 1000+ supported sites
-- Clean dark UI
-- Self-hosted on Vercel (free tier)
-
----
-
-## Deploy to Vercel (Step-by-Step)
-
-### Step 1 — Fork / Push to GitHub
-
-1. Create a new repo on [github.com/new](https://github.com/new)
-2. Clone it locally:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/viddl.git
-   cd viddl
-   ```
-3. Copy all these project files in, then:
-   ```bash
-   git add .
-   git commit -m "Initial commit"
-   git push origin main
-   ```
-
-### Step 2 — Install yt-dlp on Vercel
-
-Vercel runs Node.js serverless functions. `yt-dlp-exec` (npm package) automatically downloads the yt-dlp binary for the platform it's running on — **no manual install needed**.
-
-### Step 3 — Deploy on Vercel
-
-1. Go to [vercel.com](https://vercel.com) → **Add New Project**
-2. Import your GitHub repo
-3. Framework preset: **Other**
-4. Root directory: `.` (leave default)
-5. Click **Deploy**
-
-That's it. Vercel auto-detects `vercel.json` and deploys:
-- `/api/info.js` → serverless function at `yourdomain.vercel.app/api/info`
-- `/api/download.js` → serverless function at `yourdomain.vercel.app/api/download`
-- `/public/` → static frontend
-
-### Step 4 — Optional: Custom Domain
-
-In Vercel dashboard → Project → Settings → Domains → Add your domain.
-
----
-
-## Run Locally
-
-```bash
-npm install
-npm run dev
-# Open http://localhost:3000
-```
-
-> For local dev, the API functions need a local server. Use `vercel dev` instead:
-> ```bash
-> npm install -g vercel
-> vercel dev
-> ```
+- **1000+ supported sites** — YouTube, TikTok, Instagram, Twitter/X, Facebook, Reddit, Vimeo, Dailymotion, Twitch, SoundCloud, Bilibili and more
+- **High quality** — download up to 4K/1080p/720p wherever available
+- **No watermark** — fetches the original source directly
+- **Audio only** — extract MP3/M4A from any video
+- **No API key needed** — powered by the open-source yt-dlp tool
+- **Free hosting** — runs on Vercel free tier
+- **Auto-updates** — just push to GitHub, Vercel redeploys automatically
 
 ---
 
@@ -78,17 +36,17 @@ npm run dev
 ```
 viddl/
 ├── api/
-│   ├── info.js         # POST /api/info — fetch video metadata
-│   └── download.js     # POST /api/download — stream video to browser
+│   ├── info.js          # Serverless function — fetches video metadata & formats
+│   └── download.js      # Serverless function — streams video to browser
 ├── public/
-│   ├── index.html      # Main frontend
+│   ├── index.html       # Frontend UI
 │   ├── favicon.svg
 │   ├── css/
-│   │   └── style.css
+│   │   └── style.css    # Styles (dark theme)
 │   └── js/
-│       └── app.js
-├── vercel.json         # Vercel routing config
-├── package.json
+│       └── app.js       # Frontend logic
+├── vercel.json          # Vercel routing config
+├── package.json         # Dependencies
 └── .gitignore
 ```
 
@@ -96,33 +54,206 @@ viddl/
 
 ## How It Works
 
-1. User pastes a URL → frontend calls `POST /api/info`
-2. Server runs `yt-dlp --dump-json <url>` → returns all available formats
-3. User picks a format → frontend calls `POST /api/download`
-4. Server runs `yt-dlp -f <format_id> -o - <url>` → pipes the video stream directly to the browser
-5. Browser triggers a file download
+```
+User pastes URL
+      │
+      ▼
+POST /api/info
+      │
+      ├── yt-dlp fetches all available formats
+      └── Returns: title, thumbnail, formats list
+                        │
+                        ▼
+            User picks format & clicks Download
+                        │
+                        ▼
+               POST /api/download
+                        │
+                        ├── yt-dlp streams video
+                        └── Browser saves the file
+```
+
+No third-party APIs. No middleman. Your server talks directly to the source.
 
 ---
 
-## Important Notes
+## Setup & Deployment
 
-- **Vercel free tier** has a 10-second function timeout. Long videos may time out during streaming. For large files, consider upgrading to Vercel Pro (60s timeout) or self-hosting on a VPS.
-- This is for **personal use only**. Downloading copyrighted content without permission may violate terms of service.
-- yt-dlp is updated frequently. To keep it current, periodically update the `yt-dlp-exec` package: `npm update yt-dlp-exec`
+### Requirements
+
+- [Node.js 18+](https://nodejs.org)
+- [Git](https://git-scm.com)
+- [Vercel account](https://vercel.com) (free)
+- [GitHub account](https://github.com) (free)
+
+---
+
+### Step 1 — Create the folder structure
+
+```bash
+mkdir viddl
+cd viddl
+mkdir api
+mkdir public
+mkdir public/css
+mkdir public/js
+```
+
+Place the files like this:
+
+| File | Location |
+|------|----------|
+| `package.json` | `viddl/package.json` |
+| `vercel.json` | `viddl/vercel.json` |
+| `gitignore.txt` | `viddl/.gitignore` ← add the dot, remove .txt |
+| `api_info.js` | `viddl/api/info.js` ← rename |
+| `api_download.js` | `viddl/api/download.js` ← rename |
+| `index.html` | `viddl/public/index.html` |
+| `style.css` | `viddl/public/css/style.css` |
+| `app.js` | `viddl/public/js/app.js` |
+
+---
+
+### Step 2 — Install dependencies
+
+```bash
+npm install
+```
+
+This installs `yt-dlp-exec` which automatically downloads the yt-dlp binary — no manual installation needed.
+
+---
+
+### Step 3 — Test locally
+
+Install Vercel CLI if you haven't:
+
+```bash
+npm install -g vercel
+```
+
+Run the dev server:
+
+```bash
+vercel dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) and test with a YouTube URL.
+
+---
+
+### Step 4 — Push to GitHub
+
+Create a new repo at [github.com/new](https://github.com/new), then:
+
+```bash
+git init
+git add .
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/viddl.git
+git push -u origin main
+```
+
+---
+
+### Step 5 — Deploy to Vercel
+
+1. Go to [vercel.com](https://vercel.com) and sign in with GitHub
+2. Click **Add New Project**
+3. Click **Import** next to your `viddl` repository
+4. Settings:
+   - Framework Preset → **Other**
+   - Root Directory → `.` (leave as default)
+5. Click **Deploy**
+
+Your site is live at `https://viddl-yourname.vercel.app` ✅
+
+---
+
+### Step 6 — Future updates
+
+Every time you change something:
+
+```bash
+git add .
+git commit -m "describe your change"
+git push
+```
+
+Vercel automatically redeploys. No manual steps needed.
+
+---
+
+## Keeping yt-dlp Updated
+
+YouTube and other sites frequently change how they serve videos. yt-dlp releases updates to keep up. Run this every few weeks to stay current:
+
+```bash
+npm update yt-dlp-exec
+git add package.json package-lock.json
+git commit -m "update yt-dlp"
+git push
+```
 
 ---
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| "Function timeout" on large videos | Use Vercel Pro or a VPS |
-| "yt-dlp not found" | Run `npm install` again |
-| YouTube gives errors | Update yt-dlp: `npm update yt-dlp-exec` |
-| CORS error | You're testing outside Vercel — use `vercel dev` locally |
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `npm install` fails | Node.js not installed | Install from [nodejs.org](https://nodejs.org) |
+| `vercel dev` not found | Vercel CLI missing | `npm install -g vercel` |
+| "Cannot find module" error | File renamed wrong | Check `api/info.js` and `api/download.js` exist |
+| Video download times out | Vercel free tier = 10s limit | Upgrade to Vercel Pro (60s) or use a VPS |
+| YouTube returns errors | yt-dlp is outdated | `npm update yt-dlp-exec` then push |
+| Instagram/TikTok fails | Login required for private content | Only public videos are supported |
+| "Failed to fetch video info" | Invalid or unsupported URL | Check the URL is public and try again |
+
+---
+
+## Vercel Free Tier Limits
+
+| Limit | Free Tier | Pro Tier |
+|-------|-----------|----------|
+| Function timeout | 10 seconds | 60 seconds |
+| Bandwidth | 100 GB/month | 1 TB/month |
+| Deployments | Unlimited | Unlimited |
+
+> For most short videos (under ~50MB) the free tier works fine. For longer videos, consider Vercel Pro or deploying on a VPS like Railway, Render, or a $5 DigitalOcean droplet.
+
+---
+
+## Supported Sites (Sample)
+
+YouTube · TikTok · Instagram · Twitter/X · Facebook · Reddit · Vimeo · Dailymotion · Twitch · SoundCloud · Bilibili · Niconico · Rumble · Odysee · Pinterest · LinkedIn · Snapchat · and **1000+ more**
+
+Full list: [github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Vanilla HTML, CSS, JavaScript |
+| Backend | Node.js Serverless Functions (Vercel) |
+| Video engine | [yt-dlp](https://github.com/yt-dlp/yt-dlp) via [yt-dlp-exec](https://www.npmjs.com/package/yt-dlp-exec) |
+| Hosting | Vercel |
+| Source control | GitHub |
+
+---
+
+## Legal Notice
+
+This tool is intended for **personal use only**. Only download content you have the right to download. Downloading copyrighted material without permission may violate the terms of service of the source platform and applicable copyright law. The developer is not responsible for misuse.
 
 ---
 
 ## License
 
-MIT — do whatever you want, personal use only.
+MIT — free to use, modify, and distribute.
+
+---
+
+*Built with [yt-dlp](https://github.com/yt-dlp/yt-dlp) — the best open-source video downloader.*
