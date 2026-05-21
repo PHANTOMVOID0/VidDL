@@ -1,4 +1,11 @@
-const ytDlp = require("yt-dlp-exec");
+const fetch = require("node-fetch");
+
+// We use the public Cobalt API - no binary, no Python, works on Vercel
+const COBALT_INSTANCES = [
+  "https://api.cobalt.tools",
+  "https://cobalt.catto.re",
+  "https://cobalt.api.timelessnesses.me",
+];
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -8,57 +15,92 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { url } = req.body || {};
+  const { url, quality = "1080", format = "mp4" } = req.body || {};
   if (!url) return res.status(400).json({ error: "URL is required" });
 
-  try {
-    const info = await ytDlp(url, {
-      dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true,
-      addHeader: ["referer:youtube.com", "user-agent:Mozilla/5.0"],
-    });
+  const isAudio = format === "mp3";
 
-    const formats = (info.formats || [])
-      .filter((f) => f.url && f.ext !== "mhtml")
-      .map((f) => ({
-        format_id: f.format_id,
-        ext: f.ext,
-        quality: f.quality,
-        format_note: f.format_note || "",
-        filesize: f.filesize || f.filesize_approx || null,
-        vcodec: f.vcodec,
-        acodec: f.acodec,
-        height: f.height || null,
-        fps: f.fps || null,
-        url: f.url,
-        http_headers: f.http_headers || {},
-      }))
-      .sort((a, b) => (b.height || 0) - (a.height || 0));
+  const body = {
+    url,
+    videoQuality: quality,
+    audioFormat: "mp3",
+    downloadMode: isAudio ? "audio" : "auto",
+    filenameStyle: "pretty",
+  };
 
-    const videoFormats = formats.filter(
-      (f) => f.vcodec !== "none" && f.acodec !== "none" && f.height
-    );
-    const audioFormats = formats.filter(
-      (f) => f.vcodec === "none" && f.acodec !== "none"
-    );
+  let lastError = "";
 
-    res.status(200).json({
-      title: info.title,
-      thumbnail: info.thumbnail,
-      duration: info.duration,
-      uploader: info.uploader || info.channel || "",
-      view_count: info.view_count,
-      extractor: info.extractor,
-      videoFormats,
-      audioFormats,
-    });
-  } catch (err) {
-    console.error("yt-dlp error:", err.message);
-    res.status(500).json({
-      error: "Failed to fetch video info",
-      detail: err.message,
-    });
+  for (const instance of COBALT_INSTANCES) {
+    try {
+      const response = await fetch(`${instance}/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify(body),
+        timeout: 8000,
+      });
+
+      if (!response.ok) {
+        lastError = `Instance ${instance} returned ${response.status}`;
+        continue;
+      }
+
+      const data = await response.json();
+
+      if (data.status === "error") {
+        lastError = data.error?.code || "Cobalt error";
+        continue;
+      }
+
+      // Get download URL from response
+      const dlUrl = data.url || data.tunnel || (data.picker && data.picker[0]?.url);
+      const thumb = (data.picker && data.picker[0]?.thumb) || null;
+
+      if (!dlUrl) {
+        lastError = "No download URL in response";
+        continue;
+      }
+
+      // Detect the site from URL
+      let extractor = "video";
+      try {
+        const u = new URL(url);
+        const host = u.hostname.replace("www.", "").replace("m.", "");
+        extractor = host.split(".")[0];
+      } catch (_) {}
+
+      return res.status(200).json({
+        title: extractTitle(url, extractor),
+        thumbnail: thumb,
+        extractor,
+        downloadUrl: dlUrl,
+        isAudio,
+        quality,
+        format: isAudio ? "mp3" : "mp4",
+        instance,
+      });
+
+    } catch (err) {
+      lastError = err.message;
+      continue;
+    }
   }
+
+  return res.status(500).json({
+    error: "All Cobalt instances failed. Try again in a moment.",
+    detail: lastError,
+  });
 };
+
+function extractTitle(url, extractor) {
+  try {
+    const u = new URL(url);
+    // Try to get video ID or path as fallback title
+    const path = u.pathname.replace(/\//g, " ").trim();
+    return `${extractor} video - ${path}`.slice(0, 80);
+  } catch (_) {
+    return "Video";
+  }
+}
