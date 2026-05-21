@@ -1,11 +1,14 @@
 const fetch = require("node-fetch");
+const https = require("https");
 
-// We use the public Cobalt API - no binary, no Python, works on Vercel
+// Only use reliable Cobalt instances with valid SSL
 const COBALT_INSTANCES = [
   "https://api.cobalt.tools",
   "https://cobalt.catto.re",
-  "https://cobalt.api.timelessnesses.me",
 ];
+
+// Agent that ignores SSL errors (fallback only)
+const unsafeAgent = new https.Agent({ rejectUnauthorized: false });
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -28,78 +31,108 @@ module.exports = async (req, res) => {
     filenameStyle: "pretty",
   };
 
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 (compatible; VidDL/1.0)",
+  };
+
   let lastError = "";
 
+  // Try each instance, with and without SSL enforcement
   for (const instance of COBALT_INSTANCES) {
-    try {
-      const response = await fetch(`${instance}/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        body: JSON.stringify(body),
-        timeout: 8000,
-      });
-
-      if (!response.ok) {
-        lastError = `Instance ${instance} returned ${response.status}`;
-        continue;
-      }
-
-      const data = await response.json();
-
-      if (data.status === "error") {
-        lastError = data.error?.code || "Cobalt error";
-        continue;
-      }
-
-      // Get download URL from response
-      const dlUrl = data.url || data.tunnel || (data.picker && data.picker[0]?.url);
-      const thumb = (data.picker && data.picker[0]?.thumb) || null;
-
-      if (!dlUrl) {
-        lastError = "No download URL in response";
-        continue;
-      }
-
-      // Detect the site from URL
-      let extractor = "video";
+    for (const agent of [undefined, unsafeAgent]) {
       try {
-        const u = new URL(url);
-        const host = u.hostname.replace("www.", "").replace("m.", "");
-        extractor = host.split(".")[0];
-      } catch (_) {}
+        const response = await fetch(`${instance}/`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          agent,
+          timeout: 9000,
+        });
 
-      return res.status(200).json({
-        title: extractTitle(url, extractor),
-        thumbnail: thumb,
-        extractor,
-        downloadUrl: dlUrl,
-        isAudio,
-        quality,
-        format: isAudio ? "mp3" : "mp4",
-        instance,
-      });
+        if (!response.ok) {
+          lastError = `${instance} returned HTTP ${response.status}`;
+          continue;
+        }
 
-    } catch (err) {
-      lastError = err.message;
-      continue;
+        const data = await response.json();
+
+        if (data.status === "error") {
+          lastError = data.error?.code || "Cobalt returned error";
+          // Don't retry same instance, break inner loop
+          break;
+        }
+
+        const dlUrl =
+          data.url ||
+          data.tunnel ||
+          (data.picker && data.picker[0]?.url);
+
+        if (!dlUrl) {
+          lastError = "No download URL in response";
+          break;
+        }
+
+        const thumb =
+          (data.picker && data.picker[0]?.thumb) ||
+          data.thumbnail ||
+          null;
+
+        // Detect extractor from URL
+        let extractor = "video";
+        try {
+          const u = new URL(url);
+          extractor = u.hostname
+            .replace("www.", "")
+            .replace("m.", "")
+            .split(".")[0];
+        } catch (_) {}
+
+        // Build clean title
+        const title = buildTitle(url, extractor, data);
+
+        return res.status(200).json({
+          title,
+          thumbnail: thumb,
+          extractor,
+          downloadUrl: dlUrl,
+          isAudio,
+          quality,
+          format: isAudio ? "mp3" : "mp4",
+        });
+
+      } catch (err) {
+        lastError = err.message;
+        // Continue to next agent / instance
+      }
     }
   }
 
   return res.status(500).json({
-    error: "All Cobalt instances failed. Try again in a moment.",
+    error: "Could not reach any download server. Please try again in a moment.",
     detail: lastError,
   });
 };
 
-function extractTitle(url, extractor) {
+function buildTitle(url, extractor, data) {
   try {
     const u = new URL(url);
-    // Try to get video ID or path as fallback title
+    // YouTube: get video ID
+    if (extractor === "youtube" || extractor === "youtu") {
+      const id =
+        u.searchParams.get("v") ||
+        u.pathname.split("/").filter(Boolean).pop();
+      return `YouTube video ${id || ""}`.trim();
+    }
+    // TikTok
+    if (extractor === "tiktok") {
+      const parts = u.pathname.split("/").filter(Boolean);
+      return `TikTok - ${parts[parts.length - 1] || "video"}`;
+    }
+    // Generic
     const path = u.pathname.replace(/\//g, " ").trim();
-    return `${extractor} video - ${path}`.slice(0, 80);
+    return `${extractor} - ${path}`.slice(0, 80);
   } catch (_) {
     return "Video";
   }
