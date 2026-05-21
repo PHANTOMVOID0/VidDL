@@ -1,5 +1,4 @@
-const ytDlp = require("yt-dlp-exec");
-const { Readable } = require("stream");
+const fetch = require("node-fetch");
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -9,54 +8,42 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { url, format_id, filename, ext } = req.body || {};
-  if (!url) return res.status(400).json({ error: "URL is required" });
+  const { downloadUrl, filename = "video", ext = "mp4" } = req.body || {};
 
-  const safeFilename = (filename || "video")
+  if (!downloadUrl) return res.status(400).json({ error: "downloadUrl is required" });
+
+  const safeFilename = filename
     .replace(/[^a-zA-Z0-9_\-. ]/g, "_")
-    .slice(0, 100);
-
-  const dlExt = ext || "mp4";
-
-  res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}.${dlExt}"`);
-  res.setHeader("Content-Type", dlExt === "mp3" ? "audio/mpeg" : "video/mp4");
+    .replace(/\s+/g, "_")
+    .slice(0, 80);
 
   try {
-    const args = [
-      url,
-      "--no-check-certificates",
-      "--no-warnings",
-      "-o", "-",
-    ];
+    const upstream = await fetch(downloadUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://cobalt.tools/",
+      },
+    });
 
-    if (format_id) {
-      args.push("-f", format_id);
-    } else if (dlExt === "mp3") {
-      args.push("-f", "bestaudio", "--extract-audio", "--audio-format", "mp3");
-    } else {
-      args.push("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best");
+    if (!upstream.ok) {
+      return res.status(502).json({ error: `Upstream returned ${upstream.status}` });
     }
 
-    const proc = ytDlp.raw(url, {}, { stdio: ["ignore", "pipe", "pipe"] });
+    const contentType = upstream.headers.get("content-type") || (ext === "mp3" ? "audio/mpeg" : "video/mp4");
+    const contentLength = upstream.headers.get("content-length");
 
-    proc.stdout.pipe(res);
+    res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}.${ext}"`);
+    res.setHeader("Content-Type", contentType);
+    if (contentLength) res.setHeader("Content-Length", contentLength);
 
-    proc.stderr.on("data", (data) => {
-      console.error("yt-dlp stderr:", data.toString());
-    });
-
-    proc.on("error", (err) => {
-      console.error("Process error:", err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: "Download failed", detail: err.message });
-      }
-    });
+    upstream.body.pipe(res);
 
     req.on("close", () => {
-      proc.kill();
+      upstream.body.destroy();
     });
+
   } catch (err) {
-    console.error("Download error:", err.message);
+    console.error("Download proxy error:", err.message);
     if (!res.headersSent) {
       res.status(500).json({ error: "Download failed", detail: err.message });
     }
