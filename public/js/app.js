@@ -1,35 +1,29 @@
 let currentData = null;
+let selectedQ = "1080";
+let selectedF = "mp4";
 
 const $ = (id) => document.getElementById(id);
 
 function show(id) { $(id).classList.remove("hidden"); }
 function hide(id) { $(id).classList.add("hidden"); }
 
+function setQ(btn) {
+  document.querySelectorAll("[data-q]").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  selectedQ = btn.dataset.q;
+}
+
+function setF(btn) {
+  document.querySelectorAll("[data-f]").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  selectedF = btn.dataset.f;
+}
+
 function reset() {
   hide("results");
   hide("errorBox");
   hide("loading");
   currentData = null;
-}
-
-function switchTab(tab, btn) {
-  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-  btn.classList.add("active");
-  if (tab === "video") {
-    show("videoFormats");
-    hide("audioFormats");
-  } else {
-    hide("videoFormats");
-    show("audioFormats");
-  }
-}
-
-function formatSize(bytes) {
-  if (!bytes) return "";
-  if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + " GB";
-  if (bytes > 1e6) return (bytes / 1e6).toFixed(1) + " MB";
-  if (bytes > 1e3) return (bytes / 1e3).toFixed(0) + " KB";
-  return bytes + " B";
 }
 
 function formatDuration(secs) {
@@ -41,64 +35,36 @@ function formatDuration(secs) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function getBadgeClass(ext) {
-  if (!ext) return "badge-other";
-  if (ext === "mp4") return "badge-mp4";
-  if (ext === "webm") return "badge-webm";
-  if (["mp3", "m4a", "opus", "aac", "flac"].includes(ext)) return "badge-audio";
-  return "badge-other";
-}
-
-function buildFormatRow(f, index, isFirst) {
-  const size = formatSize(f.filesize);
-  const label = f.height
-    ? `${f.height}p${f.fps && f.fps > 30 ? f.fps : ""} ${f.ext.toUpperCase()}`
-    : (f.format_note || f.ext || "").toUpperCase();
-
-  return `
-    <div class="format-row">
-      <div class="format-left">
-        <span class="format-badge ${getBadgeClass(f.ext)}">${f.ext || "?"}</span>
-        <span class="format-label">${label}</span>
-        ${size ? `<span class="format-size">${size}</span>` : ""}
-      </div>
-      <div class="format-right">
-        ${isFirst ? '<span class="best-badge">Best</span>' : ""}
-        <button class="dl-btn" onclick="startDownload(${index}, this)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          Download
-        </button>
-      </div>
-    </div>
-  `;
-}
-
 async function fetchInfo() {
   const url = $("urlInput").value.trim();
   if (!url) return;
 
+  // Basic URL validation
+  try { new URL(url); } catch (_) {
+    $("errorMsg").textContent = "Please enter a valid URL (must start with https://)";
+    show("errorBox");
+    return;
+  }
+
   reset();
   show("loading");
-  $("loadingText").textContent = "Fetching video info...";
+  $("loadingText").textContent = "Analyzing video...";
 
   try {
     const res = await fetch("/api/info", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, quality: selectedQ, format: selectedF }),
     });
 
     const data = await res.json();
 
-    if (!res.ok) {
-      throw new Error(data.detail || data.error || "Failed to fetch video info");
-    }
+    if (!res.ok) throw new Error(data.detail || data.error || "Failed to fetch video info");
 
-    currentData = { ...data, originalUrl: url };
+    currentData = data;
     hide("loading");
-    renderResults(data);
+    renderResult(data, url);
+
   } catch (err) {
     hide("loading");
     $("errorMsg").textContent = err.message || "Something went wrong. Check the URL and try again.";
@@ -106,67 +72,52 @@ async function fetchInfo() {
   }
 }
 
-function renderResults(data) {
-  $("thumbnail").src = data.thumbnail || "";
-  $("videoTitle").textContent = data.title || "Untitled";
-  $("videoUploader").textContent = data.uploader || "";
-  $("videoDuration").textContent = formatDuration(data.duration);
-  $("videoSite").textContent = (data.extractor || "").replace("_", " ").toUpperCase();
-  if (!data.duration) $("videoDuration").classList.add("hidden");
-
-  const vList = $("videoFormats");
-  const aList = $("audioFormats");
-
-  if (data.videoFormats && data.videoFormats.length > 0) {
-    vList.innerHTML = data.videoFormats
-      .slice(0, 10)
-      .map((f, i) => buildFormatRow(f, i, i === 0))
-      .join("");
+function renderResult(data, originalUrl) {
+  // Thumbnail
+  const thumb = $("thumbnail");
+  if (data.thumbnail) {
+    thumb.src = data.thumbnail;
+    thumb.style.display = "block";
   } else {
-    vList.innerHTML = `<p style="color:var(--muted); padding:1rem 0; font-size:0.9rem;">No video formats found.</p>`;
+    thumb.style.display = "none";
   }
 
-  if (data.audioFormats && data.audioFormats.length > 0) {
-    aList.innerHTML = data.audioFormats
-      .slice(0, 6)
-      .map((f, i) => buildFormatRow(f, 100 + i, i === 0))
-      .join("");
-  } else {
-    aList.innerHTML = `<p style="color:var(--muted); padding:1rem 0; font-size:0.9rem;">No audio-only formats found.</p>`;
-  }
+  // Title - try to get clean title from URL
+  let title = data.title || originalUrl;
+  $("videoTitle").textContent = title;
+  $("videoUploader").textContent = data.extractor ? `from ${data.extractor}` : "";
+  $("videoSite").textContent = (data.extractor || "").toUpperCase();
+
+  // Format info
+  const formatLabel = data.isAudio
+    ? "MP3 Audio"
+    : `${data.quality}p MP4`;
+  $("videoFormat").textContent = formatLabel;
 
   show("results");
 }
 
-function startDownload(index, btn) {
-  if (!currentData) return;
+function startDownload() {
+  if (!currentData || !currentData.downloadUrl) return;
 
-  const isAudio = index >= 100;
-  const realIndex = isAudio ? index - 100 : index;
-  const formats = isAudio ? currentData.audioFormats : currentData.videoFormats;
-  const format = formats[realIndex];
+  const btn = $("dlBtn2");
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="spin-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Preparing...`;
 
-  if (!format) return;
-
-  btn.classList.add("downloading");
-  btn.textContent = "Starting...";
-
-  const safeTitle = (currentData.title || "video")
+  const url = $("urlInput").value.trim();
+  const safeTitle = (currentData.title || url)
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, "_")
-    .slice(0, 60);
-
-  const body = {
-    url: currentData.originalUrl,
-    format_id: format.format_id,
-    filename: safeTitle,
-    ext: format.ext,
-  };
+    .slice(0, 60) || "video";
 
   fetch("/api/download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      downloadUrl: currentData.downloadUrl,
+      filename: safeTitle,
+      ext: currentData.format || "mp4",
+    }),
   })
     .then((res) => {
       if (!res.ok) throw new Error("Download failed");
@@ -175,17 +126,28 @@ function startDownload(index, btn) {
     .then((blob) => {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `${safeTitle}.${format.ext}`;
+      a.download = `${safeTitle}.${currentData.format || "mp4"}`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(a.href);
-      btn.classList.remove("downloading");
-      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download`;
+
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download`;
     })
     .catch((err) => {
-      btn.classList.remove("downloading");
-      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download`;
-      alert("Download failed: " + err.message);
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download`;
+      $("errorMsg").textContent = "Download failed: " + err.message;
+      show("errorBox");
     });
+}
+
+// Also offer direct link as fallback
+function openDirectLink() {
+  if (currentData && currentData.downloadUrl) {
+    window.open(currentData.downloadUrl, "_blank");
+  }
 }
 
 $("urlInput").addEventListener("keydown", (e) => {
